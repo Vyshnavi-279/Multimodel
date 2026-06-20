@@ -14,11 +14,24 @@ client = OpenAI(
 
 QUESTION = "What is the capital of France?"
 
-# Send the question to one model and print the answer
-response = client.chat.completions.create(
-    model="anthropic/claude-opus-4.8",
-    messages=[{"role": "user", "content": QUESTION}],
-    max_tokens=150,  # 👈 Add this line to limit the token request
-)
+MODELS = [
+    "openai/gpt-5.5",
+    "anthropic/claude-opus-4.8",
+    "google/gemini-3.1-pro",
+    "qwen/qwen-3.7",
+]
 
-print(response.choices[0].message.content)
+
+def ask(question, model):
+    # Send the question to one model and return the text response
+    response = client.chat.completions.create(
+        model=model,
+        messages=[{"role": "user", "content": question}],
+        max_tokens=150,
+    )
+    return response.choices[0].message.content
+
+
+for model in MODELS:
+    answer = ask(QUESTION, model)
+    print(f"{model}: {answer}")
