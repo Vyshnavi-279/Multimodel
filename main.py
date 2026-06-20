@@ -1,60 +1,52 @@
-from dotenv import load_dotenv
-import os
-import time
-from openai import OpenAI
-
-# Load OPENROUTER_API_KEY from .env
-load_dotenv()
-api_key = os.environ["OPENROUTER_API_KEY"]
-
-# Point the OpenAI client at OpenRouter
-client = OpenAI(
-    api_key=api_key,
-    base_url="https://openrouter.ai/api/v1",
-)
+from llm import ask, MODELS
 
 QUESTION = "What is the capital of France?"
 
-MODELS = [
-    "openai/gpt-5.5",
-    "anthropic/claude-opus-4.8",
-    "google/gemini-3.1-pro",
-    "qwen/qwen-3.7",
-]
-
-# Pricing per 1M tokens (input, output) in USD
-PRICING = {
-    "openai/gpt-5.5":           (5.00,  30.00),
-    "anthropic/claude-opus-4.8": (5.00,  25.00),
-    "google/gemini-3.1-pro":    (1.25,   5.00),
-    "qwen/qwen-3.7":            (0.40,   0.40),
-}
-
-
-def ask(question, model):
-    in_rate, out_rate = PRICING[model]
-
-    start = time.time()
-    response = client.chat.completions.create(
-        model=model,
-        messages=[{"role": "user", "content": question}],
-        max_tokens=150,
-    )
-    latency = time.time() - start
-
-    in_tokens = response.usage.prompt_tokens
-    out_tokens = response.usage.completion_tokens
-    cost = (in_tokens * in_rate / 1_000_000) + (out_tokens * out_rate / 1_000_000)
-    text = response.choices[0].message.content
-
-    return text, latency, in_tokens, out_tokens, cost
-
-
+# Collect results, tolerating per-model failures
+results = []
 for model in MODELS:
-    text, latency, in_tok, out_tok, cost = ask(QUESTION, model)
-    print(f"Model:    {model}")
-    print(f"Answer:   {text}")
-    print(f"Latency:  {latency:.2f}s")
-    print(f"Tokens:   {in_tok} in / {out_tok} out")
-    print(f"Cost:     ${cost:.6f}")
-    print()
+    try:
+        result = ask(QUESTION, model)
+        result["model"] = model
+        result["error"] = None
+        results.append(result)
+    except Exception as e:
+        print(f"[ERROR] {model}: {e}")
+        results.append({
+            "model":     model,
+            "answer":    "N/A",
+            "latency":   0.0,
+            "in_tokens": 0,
+            "out_tokens": 0,
+            "cost":      0.0,
+            "error":     str(e),
+        })
+
+# Print comparison table
+COL = {"model": 30, "latency": 10, "tokens": 20, "cost": 14}
+DIVIDER = "-" * sum(COL.values())
+
+print(f"\nQuestion: {QUESTION}\n")
+print(DIVIDER)
+print(
+    f"{'Model':<{COL['model']}}"
+    f"{'Latency':>{COL['latency']}}"
+    f"{'Tokens':>{COL['tokens']}}"
+    f"{'Cost (USD)':>{COL['cost']}}"
+)
+print(DIVIDER)
+
+for r in results:
+    tokens_str = f"{r['in_tokens']} in / {r['out_tokens']} out"
+    print(
+        f"{r['model']:<{COL['model']}}"
+        f"{r['latency']:.2f}s{' ' * (COL['latency'] - 6)}"
+        f"{tokens_str:>{COL['tokens']}}"
+        f"${r['cost']:.6f}{' ' * (COL['cost'] - 9)}"
+    )
+    answer_preview = r["answer"].replace("\n", " ")[:72]
+    if len(r["answer"]) > 72:
+        answer_preview += "..."
+    print(f"  {answer_preview}\n")
+
+print(DIVIDER)
