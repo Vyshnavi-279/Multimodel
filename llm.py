@@ -6,45 +6,54 @@ from openai import OpenAI
 
 load_dotenv()
 
-# MODELS and PRICES remain the same...
-MODELS = ["openai/gpt-5.5", "anthropic/claude-opus-4.8", "google/gemini-3.1-pro", "qwen/qwen-3.7"]
-PRICES = { ... } 
+MODELS = [
+    "openai/gpt-5.5",
+    "anthropic/claude-opus-4.8",
+    "google/gemini-2.5-pro",
+    "qwen/qwen-3.7",
+]
 
-# --- NEW: Load multiple keys ---
-keys_string = os.getenv("OPENROUTER_API_KEYS", "")
-# Fallback to single key if the plural variable isn't found
-if not keys_string:
-    keys_string = os.getenv("OPENROUTER_API_KEY", "")
+PRICES = {
+    "openai/gpt-5.5":            {"input": 5.00,  "output": 30.00},
+    "anthropic/claude-opus-4.8": {"input": 5.00,  "output": 25.00},
+    "google/gemini-2.5-pro":     {"input": 1.25,  "output": 10.00},
+    "qwen/qwen-3.7":             {"input": 0.40,  "output":  0.40},
+}
 
+# Support a comma-separated OPENROUTER_API_KEYS pool, or fall back to the single key
+keys_string = os.getenv("OPENROUTER_API_KEYS", "") or os.getenv("OPENROUTER_API_KEY", "")
 API_KEYS = [k.strip() for k in keys_string.split(",") if k.strip()]
 
 if not API_KEYS:
     raise ValueError("No API keys found in .env file!")
 
+
 def ask(question, model, api_key_override=None):
-    """
-    Sends a question to a model. 
-    Uses an override key if provided, otherwise picks a random key from the pool.
-    """
-    # Pick the key to use for this specific call
     key_to_use = api_key_override or random.choice(API_KEYS)
-    
+    rates = PRICES[model]
+
     client = OpenAI(
         base_url="https://openrouter.ai/api/v1",
         api_key=key_to_use,
     )
-    
+
     start_time = time.time()
-    try:
-        # ... rest of your existing OpenAI client call logic ...
-        response = client.chat.completions.create(
-            model=model,
-            messages=[{"role": "user", "content": question}],
-            timeout=30.0
-        )
-        # ... calculate latency, cost, etc ...
-        
-    except Exception as e:
-        # If a specific key fails (e.g., 401 Unauthorized), you could even 
-        # add logic here to catch it and retry with a different key!
-        raise e
+    response = client.chat.completions.create(
+        model=model,
+        messages=[{"role": "user", "content": question}],
+        max_tokens=150,  # keeps requests within free-tier credit budget
+        timeout=30.0,
+    )
+    latency = time.time() - start_time
+
+    in_tokens = response.usage.prompt_tokens
+    out_tokens = response.usage.completion_tokens
+    cost = (in_tokens * rates["input"] / 1_000_000) + (out_tokens * rates["output"] / 1_000_000)
+
+    return {
+        "answer":     response.choices[0].message.content,
+        "latency":    latency,
+        "in_tokens":  in_tokens,
+        "out_tokens": out_tokens,
+        "cost":       cost,
+    }
